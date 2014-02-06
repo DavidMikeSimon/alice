@@ -79,6 +79,11 @@ class Base implements LoaderInterface
     private $uniqueValues = array();
 
     /**
+     * @var array
+     */
+    private $sequences = array();
+
+    /**
      * @var callable|LoggerInterface
      */
     private $logger;
@@ -329,12 +334,14 @@ class Base implements LoaderInterface
                 throw new \RuntimeException('Misformatted string in object '.$name.', '.$key.'\'s value should be quoted if you used yaml');
             }
 
+            $tag = "$class-$key";
+
             if (isset($flags['unique'])) {
                 $i = $uniqueTriesLimit = 128;
 
                 do {
                     // process values
-                    $generatedVal = $this->process($val, $variables);
+                    $generatedVal = $this->process($val, $variables, $tag);
 
                     if (is_object($generatedVal)) {
                         $valHash = spl_object_hash($generatedVal);
@@ -343,15 +350,15 @@ class Base implements LoaderInterface
                     } else {
                         $valHash = $generatedVal;
                     }
-                } while (--$i > 0 && isset($this->uniqueValues[$class . $key][$valHash]));
+                } while (--$i > 0 && isset($this->uniqueValues[$tag][$valHash]));
 
-                if (isset($this->uniqueValues[$class . $key][$valHash])) {
+                if (isset($this->uniqueValues[$tag][$valHash])) {
                     throw new \RuntimeException("Couldn't generate random unique value for $class: $key in $uniqueTriesLimit tries.");
                 }
 
-                $this->uniqueValues[$class . $key][$valHash] = true;
+                $this->uniqueValues[$tag][$valHash] = true;
             } else {
-                $generatedVal = $this->process($val, $variables);
+                $generatedVal = $this->process($val, $variables, $tag);
             }
 
             // add relations if available
@@ -436,7 +443,7 @@ class Base implements LoaderInterface
 
                 // create object with given args
                 $reflClass = new \ReflectionClass($class);
-                $args = $this->process($args, array());
+                $args = $this->process($args, array(), "$class-constructor");
                 foreach ($args as $num => $param) {
                     $args[$num] = $this->checkTypeHints($class, $constructor, $param, $num);
                 }
@@ -514,20 +521,38 @@ class Base implements LoaderInterface
         return $value;
     }
 
-    private function process($data, array $variables)
+    private function process($data, array $variables, $tag)
     {
         if (is_array($data)) {
             foreach ($data as $key => $val) {
-                $data[$key] = $this->process($val, $variables);
+                $data[$key] = $this->process($val, $variables, $tag);
             }
 
             return $data;
         }
 
+        // check for a sequence of values
+        if (is_string($data) && false !== strpos($data, ';')) {
+            $values = preg_split('{(?<!\\\\);}', $data);
+            if (count($values) > 1) {
+                if (!isset($this->sequences[$tag])) {
+                    $this->sequences[$tag] = 0;
+                }
+                $n = $this->sequences[$tag];
+                $this->sequences[$tag] = $n+1;
+
+                $n = min($n, count($values)-1);
+                $subExpr = trim(str_replace('\\;', ';', $values[$n]));
+                return $this->process($subExpr, $variables, $tag);
+            } else {
+                $data = str_replace('\\;', ';', $data);
+            }
+        }
+
         // check for conditional values (20%? true : false)
         if (is_string($data) && preg_match('{^(?<threshold>[0-9.]+%?)\? (?<true>.+?)(?: : (?<false>.+?))?$}', $data, $match)) {
             // process true val since it's always needed
-            $trueVal = $this->process($match['true'], $variables);
+            $trueVal = $this->process($match['true'], $variables, $tag);
 
             // compute threshold and check if we are beyond it
             $threshold = $match['threshold'];
@@ -541,7 +566,7 @@ class Base implements LoaderInterface
                 $emptyVal = is_array($trueVal) ? array() : null;
 
                 if (isset($match['false']) && '' !== $match['false']) {
-                    return $this->process($match['false'], $variables);
+                    return $this->process($match['false'], $variables, $tag);
                 }
 
                 return $emptyVal;

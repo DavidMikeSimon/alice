@@ -1109,6 +1109,37 @@ class BaseTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals($res1['user']->username, $res2['user']->username);
         $this->assertEquals($res1['group']->getName(), $res2['group']->getName());
     }
+
+    public function testFieldSequence()
+    {
+        $res = $this->loadData(array(
+            self::USER => array(
+                'user{1..5}' => array(
+                    'username' => 'bob ; joe ; mary'
+                )
+            )
+        ));
+
+        $this->assertEquals('bob', $res['user1']->username);
+        $this->assertEquals('joe', $res['user2']->username);
+        $this->assertEquals('mary', $res['user3']->username);
+        $this->assertEquals('mary', $res['user4']->username);
+        $this->assertEquals('mary', $res['user5']->username);
+    }
+
+    public function testEscapedFieldSequenceCharacter()
+    {
+        $res = $this->loadData(array(
+            self::USER => array(
+                'user{1..2}' => array(
+                    'username' => 'bob \\; joe'
+                )
+            )
+        ));
+
+        $this->assertEquals('bob ; joe', $res['user1']->username);
+        $this->assertEquals('bob ; joe', $res['user2']->username);
+    }
 }
 
 class FakerProvider
