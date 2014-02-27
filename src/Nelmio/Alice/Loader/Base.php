@@ -612,7 +612,11 @@ class Base implements LoaderInterface
             $locale = var_export($matches['locale'], true);
             $name = var_export($matches['name'], true);
 
-            return eval('return $that->fake(' . $name . ', ' . $locale . ', ' . $args . ');');
+            if ($name == "'eval'") {
+                return eval('return ' . $args . ';');
+            } else {
+                return eval('return $that->fake(' . $name . ', ' . $locale . ', ' . $args . ');');
+            }
         };
 
         // format placeholders without preg_replace if there is only one to avoid __toString() being called
